@@ -1,7 +1,17 @@
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { Ingredient, Recipe, Order } from '../types';
 import { INITIAL_INGREDIENTS, INITIAL_RECIPES, INITIAL_ORDERS } from '../data/initialData';
 import { calculateCostPerBaseUnit } from '../utils/calculations';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { 
+  syncService, 
+  mapDBToIngredient, 
+  mapDBToRecipe, 
+  mapDBToOrder,
+  getOfflineQueue 
+} from '../services/syncService';
+
+export type SyncStatus = 'synced' | 'syncing' | 'offline' | 'local_only';
 
 interface AppContextType {
   ingredients: Ingredient[];
@@ -9,6 +19,8 @@ interface AppContextType {
   orders: Order[];
   ingredientsMap: Map<string, Ingredient>;
   recipesMap: Map<string, Recipe>;
+  syncStatus: SyncStatus;
+  pendingSyncCount: number;
 
   // Insumos
   addIngredient: (ingredient: Omit<Ingredient, 'id' | 'costPerBaseUnit'>) => void;
@@ -26,6 +38,7 @@ interface AppContextType {
   deleteOrder: (id: string) => void;
 
   // Utilidades de datos
+  forceCloudSync: () => Promise<void>;
   resetToInitialData: () => void;
   exportBackup: () => void;
   importBackup: (file: File) => Promise<boolean>;
@@ -67,7 +80,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
-  // Guardar en localStorage ante cambios
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => {
+    if (!isSupabaseConfigured) return 'local_only';
+    return navigator.onLine ? 'synced' : 'offline';
+  });
+
+  const [pendingSyncCount, setPendingSyncCount] = useState<number>(() => {
+    return getOfflineQueue().length;
+  });
+
+  // Guardar en localStorage siempre de forma inmediata (local-first)
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify(ingredients));
   }, [ingredients]);
@@ -79,6 +101,144 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
   }, [orders]);
+
+  // Sincronización con Supabase (descarga inicial y vaciado de cola offline)
+  const forceCloudSync = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) {
+      setSyncStatus('local_only');
+      return;
+    }
+
+    if (!navigator.onLine) {
+      setSyncStatus('offline');
+      return;
+    }
+
+    try {
+      setSyncStatus('syncing');
+
+      // 1. Vaciar cualquier mutación offline pendiente
+      await syncService.syncOfflineQueue();
+      setPendingSyncCount(getOfflineQueue().length);
+
+      // 2. Traer datos remotos
+      const remoteData = await syncService.fetchAllRemote();
+      if (remoteData) {
+        if (
+          remoteData.ingredients.length > 0 ||
+          remoteData.recipes.length > 0 ||
+          remoteData.orders.length > 0
+        ) {
+          setIngredients(remoteData.ingredients);
+          setRecipes(remoteData.recipes);
+          setOrders(remoteData.orders);
+        } else {
+          // La base remota está vacía, subir baseline
+          await syncService.uploadInitialIfEmpty(ingredients, recipes, orders);
+        }
+        setSyncStatus('synced');
+      } else {
+        setSyncStatus('offline');
+      }
+    } catch (e) {
+      console.warn('Error durante forceCloudSync', e);
+      setSyncStatus('offline');
+    }
+  }, [ingredients, recipes, orders]);
+
+  // Manejo de eventos de red y Realtime de Supabase
+  useEffect(() => {
+    const handleOnline = () => {
+      if (isSupabaseConfigured) {
+        forceCloudSync();
+      }
+    };
+    const handleOffline = () => {
+      setSyncStatus('offline');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Ejecutar sincronización al inicio
+    forceCloudSync();
+
+    // Configurar suscripción Realtime si Supabase está activo
+    let channel: any = null;
+    if (isSupabaseConfigured && supabase) {
+      channel = supabase
+        .channel('coticomidas-realtime')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'ingredients' },
+          payload => {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const updated = mapDBToIngredient(payload.new);
+              setIngredients(prev => {
+                const idx = prev.findIndex(i => i.id === updated.id);
+                if (idx >= 0) {
+                  const copy = [...prev];
+                  copy[idx] = updated;
+                  return copy;
+                }
+                return [updated, ...prev];
+              });
+            } else if (payload.eventType === 'DELETE') {
+              setIngredients(prev => prev.filter(i => i.id !== payload.old.id));
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'recipes' },
+          payload => {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const updated = mapDBToRecipe(payload.new);
+              setRecipes(prev => {
+                const idx = prev.findIndex(r => r.id === updated.id);
+                if (idx >= 0) {
+                  const copy = [...prev];
+                  copy[idx] = updated;
+                  return copy;
+                }
+                return [updated, ...prev];
+              });
+            } else if (payload.eventType === 'DELETE') {
+              setRecipes(prev => prev.filter(r => r.id !== payload.old.id));
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'orders' },
+          payload => {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const updated = mapDBToOrder(payload.new);
+              setOrders(prev => {
+                const idx = prev.findIndex(o => o.id === updated.id);
+                if (idx >= 0) {
+                  const copy = [...prev];
+                  copy[idx] = updated;
+                  return copy;
+                }
+                return [updated, ...prev];
+              });
+            } else if (payload.eventType === 'DELETE') {
+              setOrders(prev => prev.filter(o => o.id !== payload.old.id));
+            }
+          }
+        )
+        .subscribe();
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      if (channel && supabase) {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [forceCloudSync]);
 
   // Mapas para acceso O(1) rápido
   const ingredientsMap = useMemo(() => {
@@ -108,7 +268,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       costPerBaseUnit,
       updatedAt: new Date().toISOString(),
     };
+
     setIngredients(prev => [newIng, ...prev]);
+    syncService.upsertIngredient(newIng);
+    setPendingSyncCount(getOfflineQueue().length);
   };
 
   const updateIngredient = (updated: Ingredient) => {
@@ -119,17 +282,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updated.baseUnit
     );
 
-    setIngredients(prev =>
-      prev.map(item =>
-        item.id === updated.id
-          ? { ...updated, costPerBaseUnit, updatedAt: new Date().toISOString() }
-          : item
-      )
-    );
+    const normalized: Ingredient = {
+      ...updated,
+      costPerBaseUnit,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setIngredients(prev => prev.map(item => (item.id === updated.id ? normalized : item)));
+    syncService.upsertIngredient(normalized);
+    setPendingSyncCount(getOfflineQueue().length);
   };
 
   const deleteIngredient = (id: string) => {
     setIngredients(prev => prev.filter(item => item.id !== id));
+    syncService.deleteIngredient(id);
+    setPendingSyncCount(getOfflineQueue().length);
   };
 
   // Manejadores de Recetas / Comidas
@@ -139,14 +306,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `rec-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     };
     setRecipes(prev => [newRecipe, ...prev]);
+    syncService.upsertRecipe(newRecipe);
+    setPendingSyncCount(getOfflineQueue().length);
   };
 
   const updateRecipe = (updated: Recipe) => {
     setRecipes(prev => prev.map(rec => (rec.id === updated.id ? updated : rec)));
+    syncService.upsertRecipe(updated);
+    setPendingSyncCount(getOfflineQueue().length);
   };
 
   const deleteRecipe = (id: string) => {
     setRecipes(prev => prev.filter(rec => rec.id !== id));
+    syncService.deleteRecipe(id);
+    setPendingSyncCount(getOfflineQueue().length);
   };
 
   // Manejadores de Pedidos
@@ -157,15 +330,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
     };
     setOrders(prev => [newOrder, ...prev]);
+    syncService.upsertOrder(newOrder);
+    setPendingSyncCount(getOfflineQueue().length);
     return newOrder;
   };
 
   const updateOrder = (updated: Order) => {
     setOrders(prev => prev.map(o => (o.id === updated.id ? updated : o)));
+    syncService.upsertOrder(updated);
+    setPendingSyncCount(getOfflineQueue().length);
   };
 
   const deleteOrder = (id: string) => {
     setOrders(prev => prev.filter(o => o.id !== id));
+    syncService.deleteOrder(id);
+    setPendingSyncCount(getOfflineQueue().length);
   };
 
   // Utilidades
@@ -175,6 +354,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setRecipes(INITIAL_RECIPES);
       localStorage.setItem(STORAGE_KEYS.INGREDIENTS, JSON.stringify(INITIAL_INGREDIENTS));
       localStorage.setItem(STORAGE_KEYS.RECIPES, JSON.stringify(INITIAL_RECIPES));
+      
+      if (isSupabaseConfigured && supabase) {
+        INITIAL_INGREDIENTS.forEach(i => syncService.upsertIngredient(i));
+        INITIAL_RECIPES.forEach(r => syncService.upsertRecipe(r));
+      }
     }
   };
 
@@ -203,6 +387,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIngredients(parsed.ingredients);
         setRecipes(parsed.recipes);
         if (parsed.orders) setOrders(parsed.orders);
+
+        if (isSupabaseConfigured && supabase) {
+          parsed.ingredients.forEach((i: any) => syncService.upsertIngredient(i));
+          parsed.recipes.forEach((r: any) => syncService.upsertRecipe(r));
+          if (parsed.orders) parsed.orders.forEach((o: any) => syncService.upsertOrder(o));
+        }
+
         alert('Copia de seguridad restaurada correctamente.');
         return true;
       } else {
@@ -223,6 +414,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         orders,
         ingredientsMap,
         recipesMap,
+        syncStatus,
+        pendingSyncCount,
         addIngredient,
         updateIngredient,
         deleteIngredient,
@@ -232,6 +425,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addOrder,
         updateOrder,
         deleteOrder,
+        forceCloudSync,
         resetToInitialData,
         exportBackup,
         importBackup,

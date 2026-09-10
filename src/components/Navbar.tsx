@@ -26,7 +26,16 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNewOrder,
   onNewRecipe
 }) => {
-  const { recipes, orders, resetToInitialData, exportBackup, importBackup } = useApp();
+  const { 
+    recipes, 
+    orders, 
+    syncStatus, 
+    pendingSyncCount, 
+    forceCloudSync, 
+    resetToInitialData, 
+    exportBackup, 
+    importBackup 
+  } = useApp();
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -77,9 +86,40 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900">
                   coti<span className="text-brand-600">comidas</span>
                 </span>
-                <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-brand-100 text-brand-800">
-                  Costos & Pedidos
-                </span>
+                
+                {/* Badge de estado de sincronización */}
+                {syncStatus === 'synced' && (
+                  <span
+                    title="Conectado a la nube (Supabase) en tiempo real"
+                    className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>En la nube</span>
+                  </span>
+                )}
+
+                {syncStatus === 'syncing' && (
+                  <span
+                    title="Sincronizando con Supabase..."
+                    className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-100 text-blue-800"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping"></span>
+                    <span>Sincronizando...</span>
+                  </span>
+                )}
+
+                {(syncStatus === 'offline' || syncStatus === 'local_only') && (
+                  <button
+                    onClick={forceCloudSync}
+                    title="Modo local / sin conexión activo. Click para reintentar sincronizar."
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                    <span>
+                      {pendingSyncCount > 0 ? `${pendingSyncCount} ptes. de subida` : 'Modo local'}
+                    </span>
+                  </button>
+                )}
               </div>
               <p className="text-xs text-slate-500 hidden sm:block">Control de costos, recetas y ganancias en tiempo real</p>
             </div>
