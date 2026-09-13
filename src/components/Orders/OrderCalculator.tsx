@@ -13,7 +13,8 @@ import {
   DollarSign, 
   TrendingUp, 
   PackageCheck,
-  Search
+  Search,
+  RotateCcw
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Order, OrderItem, OrderStatus, FoodCategory } from '../../types';
@@ -132,6 +133,20 @@ export const OrderCalculator: React.FC<OrderCalculatorProps> = ({
     }
 
     onFinished();
+  };
+
+  const handleResetOrder = () => {
+    if (items.length > 0 || customerName || notes) {
+      if (!window.confirm('¿Deseas reiniciar el pedido y volver todas las cantidades a 0?')) {
+        return;
+      }
+    }
+    setCustomerName('');
+    setPhone('');
+    setDeliveryDate(new Date().toISOString().split('T')[0]);
+    setStatus('pendiente');
+    setNotes('');
+    setItems([]);
   };
 
   // Copiar resumen para el cliente (sin revelar costos ni ganancias)
@@ -565,22 +580,33 @@ export const OrderCalculator: React.FC<OrderCalculatorProps> = ({
                 </div>
               </div>
 
-              {/* Botón Guardar / Confirmar */}
-              <div className="pt-2 flex items-center gap-2">
+              {/* Botones de Guardar, Reiniciar y Cancelar */}
+              <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
                 <button
                   type="submit"
                   disabled={items.length === 0}
-                  className="flex-1 py-3 px-4 rounded-xl font-bold text-sm bg-brand-500 hover:bg-brand-600 text-white shadow-md shadow-brand-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-40"
+                  className="w-full sm:flex-1 py-3 px-4 rounded-xl font-bold text-sm bg-brand-500 hover:bg-brand-600 text-white shadow-md shadow-brand-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-40"
                 >
                   <Save className="w-4 h-4" />
                   <span>{editingOrder ? 'Guardar Cambios' : 'Registrar Pedido'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleResetOrder}
+                  disabled={items.length === 0 && !customerName && !notes}
+                  className="w-full sm:w-auto py-3 px-4 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-amber-300 border border-slate-700 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-30"
+                  title="Reiniciar pedido y volver cantidades a 0"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>Reiniciar (a 0)</span>
                 </button>
 
                 {editingOrder && (
                   <button
                     type="button"
                     onClick={onFinished}
-                    className="py-3 px-4 rounded-xl font-semibold text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+                    className="w-full sm:w-auto py-3 px-4 rounded-xl font-semibold text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
                   >
                     Cancelar
                   </button>
