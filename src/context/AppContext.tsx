@@ -133,8 +133,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setRecipes(remoteData.recipes);
           setOrders(remoteData.orders);
         } else {
-          // La base remota está vacía, subir baseline
-          await syncService.uploadInitialIfEmpty(ingredients, recipes, orders);
+          // La base remota está vacía, subir baseline inicial
+          await syncService.uploadInitialIfEmpty(INITIAL_INGREDIENTS, INITIAL_RECIPES, INITIAL_ORDERS);
         }
         setSyncStatus('synced');
       } else {
@@ -144,7 +144,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.warn('Error durante forceCloudSync', e);
       setSyncStatus('offline');
     }
-  }, [ingredients, recipes, orders]);
+  }, []);
 
   // Manejo de eventos de red y Realtime de Supabase
   useEffect(() => {
