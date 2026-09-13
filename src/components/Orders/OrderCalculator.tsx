@@ -306,61 +306,86 @@ export const OrderCalculator: React.FC<OrderCalculatorProps> = ({
                       {recipe.description || 'Receta artesanal'}
                     </p>
 
-                    {/* Precios y Costos */}
-                    <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 p-2 rounded-xl mb-3">
+                    {/* Precios y Costos: Costo, Venta y Ganancia de cada comida */}
+                    <div className="grid grid-cols-3 gap-1.5 text-xs bg-slate-50 p-2 rounded-xl mb-3 border border-slate-100">
                       <div>
-                        <span className="text-slate-400 block text-[10px] uppercase font-semibold">
-                          Precio Venta
+                        <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                          Costo U.
+                        </span>
+                        <span className="font-bold text-rose-600">
+                          {formatCurrency(fin.unitCost)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                          Venta U.
                         </span>
                         <span className="font-bold text-slate-900">
                           {formatCurrency(recipe.salePrice)}
                         </span>
                       </div>
                       <div>
-                        <span className="text-slate-400 block text-[10px] uppercase font-semibold">
-                          Ganancia U.
+                        <span className="text-slate-400 block text-[10px] uppercase font-bold">
+                          Ganancia
                         </span>
                         <span className="font-bold text-emerald-600">
                           +{formatCurrency(fin.unitProfit)}
-                          <span className="text-[10px] font-normal text-emerald-500 ml-1">
-                            ({Math.round(fin.marginPercent)}%)
-                          </span>
                         </span>
                       </div>
                     </div>
                   </div>
 
                   {/* Stepper de Cantidad */}
-                  <div className="flex items-center justify-between pt-1 border-t border-slate-100">
-                    <span className="text-xs font-semibold text-slate-600">
-                      Cantidad:
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => decrementItem(recipe.id)}
-                        disabled={qty === 0}
-                        className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-30 flex items-center justify-center text-slate-700 transition-colors font-bold"
-                      >
-                        <Minus className="w-3.5 h-3.5" />
-                      </button>
-                      <input
-                        type="number"
-                        min="0"
-                        value={qty}
-                        onChange={e =>
-                          setItemQuantity(recipe.id, parseInt(e.target.value) || 0)
-                        }
-                        className="w-12 text-center font-bold text-sm bg-white border border-slate-200 rounded-lg py-1 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => incrementItem(recipe.id)}
-                        className="w-7 h-7 rounded-lg bg-brand-600 hover:bg-brand-700 flex items-center justify-center text-white transition-colors font-bold shadow-sm"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
+                  <div className="pt-2 border-t border-slate-100 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-600">
+                        Cantidad:
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => decrementItem(recipe.id)}
+                          disabled={qty === 0}
+                          className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-30 flex items-center justify-center text-slate-700 transition-colors font-bold"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <input
+                          type="number"
+                          min="0"
+                          value={qty}
+                          onChange={e =>
+                            setItemQuantity(recipe.id, parseInt(e.target.value) || 0)
+                          }
+                          className="w-12 text-center font-bold text-sm bg-white border border-slate-200 rounded-lg py-1 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => incrementItem(recipe.id)}
+                          className="w-7 h-7 rounded-lg bg-brand-600 hover:bg-brand-700 flex items-center justify-center text-white transition-colors font-bold shadow-sm"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
+
+                    {/* Subtotales en vivo cuando la cantidad es mayor a 0 */}
+                    {qty > 0 && (
+                      <div className="bg-white p-2 rounded-xl border border-brand-200 flex items-center justify-between text-[11px] shadow-xs">
+                        <div>
+                          <span className="text-slate-400 block text-[9px] uppercase font-bold">Costo {qty}x</span>
+                          <span className="font-extrabold text-rose-600">{formatCurrency(fin.unitCost * qty)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[9px] uppercase font-bold">Venta {qty}x</span>
+                          <span className="font-extrabold text-slate-900">{formatCurrency(recipe.salePrice * qty)}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-slate-400 block text-[9px] uppercase font-bold">Ganancia</span>
+                          <span className="font-extrabold text-emerald-600">+{formatCurrency(fin.unitProfit * qty)}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -454,6 +479,47 @@ export const OrderCalculator: React.FC<OrderCalculatorProps> = ({
                 />
               </div>
             </div>
+
+            {/* Desglose de costos y ventas por comida seleccionada */}
+            {items.length > 0 && (
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    Costo y Ganancia por Comida
+                  </span>
+                  <span className="text-[11px] text-slate-400 font-semibold">
+                    {items.length} {items.length === 1 ? 'plato' : 'platos'}
+                  </span>
+                </div>
+                <div className="divide-y divide-slate-100 text-xs">
+                  {items.map(it => {
+                    const rec = recipesMap.get(it.recipeId);
+                    if (!rec || it.quantity <= 0) return null;
+                    const fin = getRecipeFinancials(rec, ingredientsMap);
+                    return (
+                      <div key={it.recipeId} className="py-2 flex items-center justify-between gap-2">
+                        <div>
+                          <span className="font-bold text-slate-900 block">
+                            {it.quantity}x {rec.name}
+                          </span>
+                          <span className="text-[11px] text-slate-500">
+                            Costo u: <strong className="text-rose-600">{formatCurrency(fin.unitCost)}</strong> | Venta u: {formatCurrency(rec.salePrice)}
+                          </span>
+                        </div>
+                        <div className="text-right whitespace-nowrap">
+                          <span className="text-rose-600 font-bold block text-xs">
+                            Costo: {formatCurrency(fin.unitCost * it.quantity)}
+                          </span>
+                          <span className="text-emerald-600 font-extrabold text-xs bg-emerald-50 px-1.5 py-0.5 rounded">
+                            +{formatCurrency(fin.unitProfit * it.quantity)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Resumen Financiero en Vivo del Pedido */}
             <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-5 rounded-2xl shadow-lg space-y-4">

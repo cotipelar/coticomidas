@@ -24,7 +24,8 @@ import {
   calculateOrderTotals, 
   formatCurrency, 
   formatPercent,
-  calculateShoppingList 
+  calculateShoppingList,
+  getRecipeFinancials
 } from '../../utils/calculations';
 import { ShoppingListModal } from './ShoppingListModal';
 
@@ -431,23 +432,36 @@ export const OrderList: React.FC<OrderListProps> = ({ onEditOrder, onNewOrder })
                         const rec = recipesMap.get(item.recipeId);
                         if (!rec) return null;
                         const lineRev = rec.salePrice * item.quantity;
-                        return (
-                          <div
-                            key={item.recipeId}
-                            className="px-4 py-2.5 flex items-center justify-between"
-                          >
-                            <span className="font-semibold text-slate-800">
-                              {item.quantity}x {rec.name}{' '}
-                              <span className="text-slate-400 font-normal">
-                                ({rec.yieldUnit})
-                              </span>
-                            </span>
-                            <span className="font-bold text-slate-900">
-                              {formatCurrency(lineRev)}
-                            </span>
-                          </div>
-                        );
-                      })}
+                          const fin = getRecipeFinancials(rec, ingredientsMap);
+                          const lineCost = fin.unitCost * item.quantity;
+                          const lineProfit = lineRev - lineCost;
+                          return (
+                            <div
+                              key={item.recipeId}
+                              className="px-4 py-2.5 flex items-center justify-between"
+                            >
+                              <div>
+                                <span className="font-semibold text-slate-800">
+                                  {item.quantity}x {rec.name}{' '}
+                                  <span className="text-slate-400 font-normal">
+                                    ({rec.yieldUnit})
+                                  </span>
+                                </span>
+                                <span className="text-[11px] text-slate-400 block">
+                                  Costo u: <strong className="text-rose-600 font-medium">{formatCurrency(fin.unitCost)}</strong> | Venta u: {formatCurrency(rec.salePrice)}
+                                </span>
+                              </div>
+                              <div className="text-right">
+                                <span className="font-bold text-slate-900 block">
+                                  {formatCurrency(lineRev)}
+                                </span>
+                                <span className="text-[11px] text-slate-500">
+                                  Costo: <strong className="text-rose-600 font-semibold">{formatCurrency(lineCost)}</strong> | <strong className="text-emerald-600 font-semibold">+{formatCurrency(lineProfit)}</strong>
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
                     </div>
 
                     {order.notes && (
